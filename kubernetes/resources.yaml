@@ -1,0 +1,58 @@
+apiVersion: v1
+kind: Service
+metadata:
+    name: sheets2json
+spec:
+    ports:
+      - name: sheets2json
+        port: 80
+        targetPort: 8000
+    selector:
+        app: sheets2json
+    type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+    labels:
+        app: sheets2json
+    name: sheets2json
+spec:
+    selector:
+        matchLabels:
+            app: sheets2json
+    template:
+        metadata:
+            labels:
+                app: sheets2json
+        spec:
+            containers:
+              - image: waggle/sheets2json
+                name: sheets2json
+                envFrom:
+                - secretRef:
+                    name: sheets2json
+                ports:
+                  - containerPort: 8000
+                    name: http
+# ---example
+# apiVersion: networking.k8s.io/v1
+# kind: Ingress
+# metadata:
+#   name: sheets2json-ingress
+#   annotations:
+#     kubernetes.io/ingress.class: nginx
+#     nginx.ingress.kubernetes.io/rewrite-target: /
+# spec:
+#   #ingressClassName: nginx
+#   rules:
+#   #- host:
+#   - http:
+#       paths:
+#       - path: /
+#         pathType: Prefix
+#         backend:
+#           service:
+#             name: sheets2json
+#             port:
+#               number: 80
