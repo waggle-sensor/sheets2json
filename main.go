@@ -213,7 +213,7 @@ func main() {
 
 	var err error
 	if os.Getenv("CACHE_TIME_SECONDS") == "" {
-		cacheTimeSeconds = 60
+		cacheTimeSeconds = 5
 	} else {
 		cacheTimeSeconds, err = strconv.Atoi(os.Getenv("CACHE_TIME_SECONDS"))
 		if err != nil {
