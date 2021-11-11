@@ -181,7 +181,7 @@ func HomeHandler(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 
-	addr := "127.0.0.1:8000"
+	addr := ":8000"
 
 	var err error
 	if os.Getenv("CACHE_TIME_SECONDS") == "" {
