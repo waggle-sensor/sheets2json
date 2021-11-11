@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -54,10 +55,37 @@ func GetSheetData() (data []map[string]interface{}, err error) {
 		return
 	}
 
-	for i := 1; i < len(sheet.Values); i++ {
+	titles := sheet.Values[0]
+	dataTypes := sheet.Values[1]
+	// skip first two rows !
+	for i := 2; i < len(sheet.Values); i++ {
 		obj := make(map[string]interface{})
 		for col := 0; col < len(sheet.Values[i]); col++ {
-			obj[sheet.Values[0][col]] = sheet.Values[i][col]
+
+			switch ctype := dataTypes[col]; ctype {
+			case "boolean", "bool":
+				value_str := strings.ToLower(sheet.Values[i][col])
+				if value_str == "yes" || value_str == "true" || value_str == "1" || value_str == "y" {
+					obj[titles[col]] = true
+				} else {
+					obj[titles[col]] = false
+				}
+			case "integer", "int":
+				value_str := sheet.Values[i][col]
+				if value_str != "" {
+					var value_int int
+					value_int, err = strconv.Atoi(value_str)
+					if err != nil {
+						obj["_error"] = "Could not parse " + titles[col] + " " + err.Error()
+						err = nil
+					} else {
+						obj[titles[col]] = value_int
+					}
+				}
+			default:
+				obj[titles[col]] = sheet.Values[i][col]
+			}
+
 		}
 		data = append(data, obj)
 	}
