@@ -29,9 +29,6 @@ spec:
             containers:
               - image: waggle/sheets2json
                 name: sheets2json
-                envFrom:
-                - secretRef:
-                    name: sheets2json
                 ports:
                   - containerPort: 8000
                     name: http
