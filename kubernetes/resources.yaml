@@ -35,6 +35,25 @@ spec:
                 ports:
                   - containerPort: 8000
                     name: http
+                volumeMounts:
+                  - name: config
+                    mountPath: /config.yaml
+                    subPath: config.yaml
+                    readOnly: true
+                resources:
+                    limits:
+                        cpu: "250m"
+                        memory: "5Gi"
+                    requests:
+                        cpu: "250m"
+                        memory: "2Gi"
+
+            volumes:
+              - name: config
+                configMap:
+                    name: sheets2api-resource-config
+        #  - key: config.yaml
+        #    path: /config.yaml
 # ---example
 # apiVersion: networking.k8s.io/v1
 # kind: Ingress

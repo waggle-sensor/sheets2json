@@ -14,10 +14,12 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"gopkg.in/yaml.v2"
 )
 
 var cacheTimeSeconds int
 var sheet_url string
+var config map[string]SheetConf
 
 type Sheet struct {
 	Range          string     `json:"range"`
@@ -29,7 +31,12 @@ type ErrorResponse struct {
 	Error string `json:"error"`
 }
 
-func GetSheet() (sheet *Sheet, err error) {
+type SheetConf struct {
+	HasTypes bool   `yaml:"types"`
+	URL      string `yaml:"url"`
+}
+
+func GetSheet(sheet_url string) (sheet *Sheet, err error) {
 
 	var resp *http.Response
 	resp, err = http.Get(sheet_url)
@@ -47,45 +54,65 @@ func GetSheet() (sheet *Sheet, err error) {
 	return
 }
 
-func GetSheetData() (data []map[string]interface{}, err error) {
+func GetSheetData(url string, HasTypes bool) (data []map[string]interface{}, err error) {
+
+	if url == "" {
+		err = fmt.Errorf("url not defined")
+		return
+	}
 
 	var sheet *Sheet
-	sheet, err = GetSheet()
+	sheet, err = GetSheet(url)
 	if err != nil {
 		return
 	}
 
 	titles := sheet.Values[0]
-	dataTypes := sheet.Values[1]
-	// skip first two rows !
-	for i := 2; i < len(sheet.Values); i++ {
+	dataTypes := []string{}
+	data_row_start := 1
+	if HasTypes {
+		data_row_start = 2
+		dataTypes = sheet.Values[1]
+	}
+
+	for i := data_row_start; i < len(sheet.Values); i++ {
+		if sheet.Values[i][0] == "" {
+			continue
+		}
 		obj := make(map[string]interface{})
 		for col := 0; col < len(sheet.Values[i]); col++ {
 
-			switch ctype := dataTypes[col]; ctype {
-			case "boolean", "bool":
-				value_str := strings.ToLower(sheet.Values[i][col])
-				if value_str == "yes" || value_str == "true" || value_str == "1" || value_str == "y" {
-					obj[titles[col]] = true
-				} else {
-					obj[titles[col]] = false
+			if HasTypes {
+				ctype := "string"
+				if col < len(dataTypes) {
+					ctype = dataTypes[col]
 				}
-			case "integer", "int":
-				value_str := sheet.Values[i][col]
-				if value_str != "" {
-					var value_int int
-					value_int, err = strconv.Atoi(value_str)
-					if err != nil {
-						obj["_error"] = "Could not parse " + titles[col] + " " + err.Error()
-						err = nil
+				switch ctype {
+				case "boolean", "bool":
+					value_str := strings.ToLower(sheet.Values[i][col])
+					if value_str == "yes" || value_str == "true" || value_str == "1" || value_str == "y" {
+						obj[titles[col]] = true
 					} else {
-						obj[titles[col]] = value_int
+						obj[titles[col]] = false
 					}
+				case "integer", "int":
+					value_str := sheet.Values[i][col]
+					if value_str != "" {
+						var value_int int
+						value_int, err = strconv.Atoi(value_str)
+						if err != nil {
+							obj["_error"] = "Could not parse " + titles[col] + " " + err.Error()
+							err = nil
+						} else {
+							obj[titles[col]] = value_int
+						}
+					}
+				default:
+					obj[titles[col]] = sheet.Values[i][col]
 				}
-			default:
+			} else {
 				obj[titles[col]] = sheet.Values[i][col]
 			}
-
 		}
 		data = append(data, obj)
 	}
@@ -136,8 +163,8 @@ func timespecToTime(ts syscall.Timespec) time.Time {
 	return time.Unix(int64(ts.Sec), int64(ts.Nsec))
 }
 
-func GetDataCached() (data []map[string]interface{}, err error) {
-	cache_file := "cache.json"
+func GetDataCached(resource string, conf SheetConf) (data []map[string]interface{}, err error) {
+	cache_file := resource + ".cache"
 
 	fInfo, ferr := os.Stat(cache_file)
 	if ferr == nil {
@@ -158,7 +185,7 @@ func GetDataCached() (data []map[string]interface{}, err error) {
 
 	// file does not exists or is too old
 
-	data, err = GetSheetData()
+	data, err = GetSheetData(conf.URL, conf.HasTypes)
 	if err != nil {
 		return
 	}
@@ -180,9 +207,23 @@ func GetDataCached() (data []map[string]interface{}, err error) {
 }
 
 func HomeHandler(w http.ResponseWriter, r *http.Request) {
-	//vars := mux.Vars(r)
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprint(w, "Sheets2JSON API")
+}
 
-	data, err := GetDataCached()
+func ResourceHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	resource := vars["resource"]
+
+	conf, ok := config[resource]
+	if !ok {
+		er := ErrorResponse{Error: fmt.Sprintf("resource %s not available", resource)}
+		response_json, _ := json.Marshal(er)
+		http.Error(w, string(response_json), http.StatusInternalServerError)
+		return
+	}
+
+	data, err := GetDataCached(resource, conf)
 	if err != nil {
 
 		er := ErrorResponse{Error: err.Error()}
@@ -202,9 +243,27 @@ func HomeHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprint(w, string(response_json))
 
+}
+
+func getConf() {
+
+	config = make(map[string]SheetConf)
+
+	yamlFile, err := ioutil.ReadFile("/config.yaml")
+	if err != nil {
+		log.Fatalf("yamlFile.Get err   #%v ", err)
+	}
+
+	err = yaml.Unmarshal(yamlFile, config)
+	if err != nil {
+		log.Fatalf("Unmarshal: %v", err)
+	}
+
+	return
 }
 
 func main() {
@@ -221,14 +280,20 @@ func main() {
 		}
 	}
 
-	sheet_url = os.Getenv("GOOGLE_SHEET_URL")
-	if sheet_url == "" {
-		log.Fatal("GOOGLE_SHEET_URL not defined")
+	getConf()
+
+	for res := range config {
+		fmt.Println("Found config for resource " + res)
 	}
+
+	// sheet_url = os.Getenv("GOOGLE_SHEET_URL")
+	// if sheet_url == "" {
+	// 	log.Fatal("GOOGLE_SHEET_URL not defined")
+	// }
 
 	r := mux.NewRouter()
 	r.HandleFunc("/", HomeHandler)
-
+	r.HandleFunc("/{resource}", ResourceHandler)
 	//http.Handle("/", r)
 
 	srv := &http.Server{

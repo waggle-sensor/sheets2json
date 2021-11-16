@@ -1,0 +1,9 @@
+production:
+  types: true
+  url: <private url>
+monitoring:
+  types: true
+  url: <private url>
+ontology:
+  types: false
+  url: <private url>
